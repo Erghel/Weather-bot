@@ -9,16 +9,20 @@ class BotDB:
         self.cursor.execute(f"SELECT user_id FROM users WHERE user_id = {id}")
         return bool(len(self.cursor.fetchall()))
 
+    def count_where(self,table,date):
+        self.cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE join_date = '{date}'")
+        return self.cursor.fetchall()[0][0]
+
+    def get_records_len(self,table):
+        self.cursor.execute(f"SELECT COUNT(*) FROM {table}")
+        return self.cursor.fetchall()[0][0]
+
     def update_lastvisit(self,id,date):
         try:
-            self.cursor.execute("UPDATE users SET lastvisit = %s WHERE user_id = %s ",(date,id))
-            self.conn.commit()
-        except: return "[PostgreSQL error]"
-
-    def add_user(self,user_id,date):
-        try:
-            if (self.check_exist_user(user_id) == False):
-                self.cursor.execute("INSERT INTO users (user_id, join_date,lastvisit) VALUES (%s,%s,%s)",(user_id,date,date))
+            if (self.check_exist_user(id) == False):
+                self.cursor.execute("INSERT INTO users (user_id, join_date,lastvisit) VALUES (%s,%s,%s)",(id,date,date))
+            else:
+                self.cursor.execute("UPDATE users SET lastvisit = %s WHERE user_id = %s ",(date,id))
             self.conn.commit()
         except: return "[PostgreSQL error]"
 
@@ -29,7 +33,7 @@ class BotDB:
     def add_record(self, user_id, place,date):
         try:
             if (self.user_exists(user_id) == False):
-                self.cursor.execute("INSERT INTO mailings (user_id, place,connect_date) VALUES (%s, %s,%s)",(user_id,place,date))
+                self.cursor.execute("INSERT INTO mailings (user_id, place,join_date) VALUES (%s, %s,%s)",(user_id,place,date))
             else:
                 self.cursor.execute("UPDATE mailings SET place = %s WHERE user_id = %s ",(place,user_id))
             self.conn.commit()

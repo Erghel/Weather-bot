@@ -14,6 +14,9 @@ class OwmMGR:
         self.uv_mgr = self.owm.uvindex_manager()
         self.air_mgr = self.owm.airpollution_manager()
 
+    def deg_to_text(self,deg):
+        return text.wind_deg[round(float(deg)/22.5)%16]
+
     def handle_weather(self,place,weather_type):
         try:
             if int(weather_type) == 1:
@@ -23,8 +26,8 @@ class OwmMGR:
             elif int(weather_type) == 2:
                 place = place.split(',')
                 weather = self.mgr.weather_at_coords(float(place[0]), float(place[1])).weather 
-                list_of_locations = self.geo_mgr.reverse_geocode(float(place[0]), float(place[1]))
-                place = list_of_locations[0].name
+                #list_of_locations = self.geo_mgr.reverse_geocode(float(place[0]), float(place[1]))
+                place = f'{place[0]},{place[1]}'
 
             elif int(weather_type) == 3:
                 place = place.split(',')
@@ -60,19 +63,18 @@ class OwmMGR:
                     rain_value = f'{text.rain_1} {r["1h"]} {text.rain_2} \n\n'
                 except:pass
 
-            return( f"= {text.weather_parameters[8]} {text.first_line_types[int(weather_type)]} {place} =\n"+
+            return{'weather':( f"= {text.weather_parameters[7]} {text.first_line_types[int(weather_type)]} {place} =\n"+
                     f"┌ {text.weather_parameters[0]} {temp_manager['temp_min']} - {temp_manager['temp_max']} °C  ({temp_manager['temp']} °C)\n" +
                     f"├ {text.weather_parameters[1]} {temp_manager['feels_like']} °C\n" +
-                    f"├ {text.weather_parameters[2]} {wind['speed']} м/с\n" +
-                    f"├ {text.weather_parameters[3]} {wind['deg']} °\n" +
-                    f"├ {text.weather_parameters[4]} {round(weather.pressure['press']/133,2)} мм.рт.ст\n" +
-                    f"├ {text.weather_parameters[5]} {weather.humidity} %\n" +
-                    f"├ {text.weather_parameters[6]} {weather.visibility_distance/1000} км\n" +
-                    f"├ {text.weather_parameters[7]} {weather.clouds} %\n" +
+                    f"├ {text.weather_parameters[2]} {wind['speed']} м/с ({self.deg_to_text(wind['deg'])})\n" +
+                    f"├ {text.weather_parameters[3]} {round(weather.pressure['press']/133,2)} мм.рт.ст\n" +
+                    f"├ {text.weather_parameters[4]} {weather.humidity} %\n" +
+                    f"├ {text.weather_parameters[5]} {weather.visibility_distance/1000} км\n" +
+                    f"├ {text.weather_parameters[6]} {weather.clouds} %\n" +
                     f"└ {weather.detailed_status[0].capitalize() + weather.detailed_status[1:]} {text.icons[weather.weather_icon_name[:-1]]}\n\n"+
                     str(recomendation) +
                     str(rain_value)+
-                    f"{text.last_receive_data_text} {weather.reference_time('iso')}")
+                    f"{text.last_receive_data_text} {weather.reference_time('iso')}"),'icon':weather.weather_icon_name[:-1]}
 
         except NotFoundError:
             return (f'{text.not_found_types[weather_type]} "{place}" {text.notfound_text}')
@@ -83,6 +85,7 @@ class OwmMGR:
         except Exception as e:
             #await bot.send_message(config.ADMIN_ID,f'[Exception] : ({e})')
             return text.exception_text
+
     
     def handle_air(self,lat,lon):
         air_status = self.air_mgr.air_quality_at_coords(float(lat), float(lon))

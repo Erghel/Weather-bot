@@ -3,3 +3,5 @@ pyowm
 aioschedule
 asyncio
 psycopg2
+matplotlib
+numpy

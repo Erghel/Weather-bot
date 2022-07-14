@@ -1,6 +1,7 @@
 import config,text,markups
 from db import BotDB
 from owm_manager import OwmMGR
+import generate_stats
 
 from datetime import datetime,timedelta,date
 import aioschedule
@@ -15,6 +16,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.utils import executor
+from aiogram.types import ReplyKeyboardRemove
 
 logging.basicConfig(level=logging.INFO)
 
@@ -37,6 +39,7 @@ class Form(StatesGroup):
     report = State()
     uv_index = State()
     db_place = State()
+    stats = State()
 
 def is_subscribed(chat_member):
     if chat_member['status'] != 'left':
@@ -44,22 +47,28 @@ def is_subscribed(chat_member):
     else:
         return False
 
+async def message_handling(message):
+    if message.from_user.id != message.chat.id:
+        await bot.send_message(message.chat.id,text.groups)
+
+    BotDB.update_lastvisit(message.from_user.id,date.today())
+
 async def send_subscribe(message: types.Message):
     if not is_subscribed(await bot.get_chat_member(chat_id=config.CHANNEL_ID,user_id = message.from_user.id)):
         await bot.send_message(message.chat.id,text.subscribe_text,reply_markup = markups.buttons)
 
 @dp.message_handler(commands='start')
 async def welcome(message: types.Message):
-    BotDB.add_user(message.from_user.id,date.today())
     photo = open(os.path.dirname(os.path.realpath(__file__)) + config.BANNER_PATH, 'rb')
     await bot.send_photo(message.chat.id,photo, text.welcome_text_1 + str(message.from_user.first_name) + text.welcome_text_2)
     await help(message)
     await send_subscribe(message)
+    await message_handling(message)
 
 @dp.message_handler(commands='donate')
 async def get_donate(message:types.Message):
     await bot.send_message(message.chat.id,text.donate_text,reply_markup = markups.donate_buttons)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 @dp.message_handler(commands='debug')
 async def debug(message: types.Message):
@@ -67,22 +76,30 @@ async def debug(message: types.Message):
     current_time = now.strftime("%H:%M:%S")
     await message.reply(f"Telegram:\n{message}\n\nServer:\n{aiogram_core.SysInfo()}\n\nCurrent time:{current_time}")
 
+@dp.message_handler(content_types='location')
+async def get_place(message: types.Message):
+    try:
+        weather = OwmMGR.handle_weather(f'{message.location.latitude},{message.location.latitude}',2)
+        photo = open(os.path.dirname(os.path.realpath(__file__)) + f"/media/weather_icons/{weather['icon']}.jpg", 'rb',reply_markup=ReplyKeyboardRemove())
+        await bot.send_photo(message.chat.id,photo,weather['weather'])
+    except: await bot.send_message(message.chat.id,weather['weather'])
+
 @dp.message_handler(commands='help')
 async def help(message: types.Message):
     await bot.send_message(message.chat.id, text.help_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 @dp.message_handler(commands='credits')
 async def credits(message: types.Message):
     await bot.send_message(message.chat.id, text.credits_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 #report
 @dp.message_handler(commands='report')
 async def get_report(message: types.Message):
     await Form.report.set()
     await bot.send_message(message.chat.id,text.get_report_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 @dp.message_handler(state=Form.report)
 async def send_report(message: types.Message,state: FSMContext):
@@ -101,7 +118,7 @@ async def send_report(message: types.Message,state: FSMContext):
 async def send_air(message: types.Message):
     await Form.air_pollution.set()
     await bot.send_message(message.chat.id,text.get_coordinates_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 @dp.message_handler(state=Form.air_pollution)
 async def send_air(message: types.Message,state: FSMContext):
@@ -119,7 +136,7 @@ async def send_air(message: types.Message,state: FSMContext):
 async def send_uv(message: types.Message):
     await Form.uv_index.set()
     await bot.send_message(message.chat.id,text.get_coordinates_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 @dp.message_handler(state=Form.uv_index)
 async def send_uv(message: types.Message,state: FSMContext):
@@ -137,7 +154,7 @@ async def send_uv(message: types.Message,state: FSMContext):
 async def get_geo(message: types.Message):
     await Form.get_geo.set()
     await bot.send_message(message.chat.id, text.get_geo_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 @dp.message_handler(state=Form.get_geo)
 async def send_to_geo(message: types.Message,state: FSMContext):
@@ -150,49 +167,83 @@ async def send_to_geo(message: types.Message,state: FSMContext):
     except: await message.reply(text.incorrect_data_text)
     await state.finish()
 
-#name
+@dp.message_handler(commands='stats')
+async def send_stats(message:types.Message):
+    if message.chat.id == config.ADMIN_ID:
+
+        await bot.send_message(message.chat.id,text.select_interval,reply_markup=markups.intervals)
+        await Form.stats.set()
+
+@dp.message_handler(state=Form.stats)
+async def stats(message: types.Message,state: FSMContext):
+    try:
+        async with state.proxy() as data:
+            data['name'] = message.text
+            res = generate_stats.generate_stats(int(message.text))
+            photo1 = open(os.path.dirname(os.path.realpath(__file__)) + f"/media/users_plot.png", 'rb')
+            photo2 = open(os.path.dirname(os.path.realpath(__file__)) + f"/media/mailings_plot.png", 'rb')
+            await bot.send_photo(message.chat.id,photo1)
+            await bot.send_photo(message.chat.id,photo2)
+            await bot.send_message(message.chat.id,res)
+    except:
+        await bot.send_message(message.chat.id,text.cannot_collect_stats)
+
 @dp.message_handler(commands='weather')
-async def get_weather(message: types.Message):
+async def get_weather_type(message:types.Message):
+    await bot.send_message(message.chat.id,text.select_type_text,reply_markup=markups.weather_buttons)
+    await message_handling(message)
+
+#name
+@dp.callback_query_handler(text="place")
+async def get_place(call: types.CallbackQuery):
     await Form.weather_place.set()
-    await bot.send_message(message.chat.id, text.get_weather_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await bot.send_message(call.message.chat.id, text.get_weather_text)
 
 @dp.message_handler(state=Form.weather_place)
 async def weather_place(message: types.Message,state: FSMContext):
     async with state.proxy() as data:
         data['name'] = message.text
-    await message.reply(OwmMGR.handle_weather(message.text,1))
+    try:
+        weather = OwmMGR.handle_weather(message.text,1)
+        photo = open(os.path.dirname(os.path.realpath(__file__)) + f"/media/weather_icons/{weather['icon']}.jpg", 'rb')
+        await bot.send_photo(message.chat.id,photo,weather['weather'])
+    except: await bot.send_message(message.chat.id,weather['weather'])
     await send_subscribe(message)
     await state.finish()
 
 #gps
-@dp.message_handler(commands='weather_coords')
-async def get_coordinates(message: types.Message):
+@dp.callback_query_handler(text="gps")
+async def get_gps(call: types.CallbackQuery):
     await Form.weather_coordinates.set()
-    await bot.send_message(message.chat.id, text.get_coordinates_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await bot.send_message(call.message.chat.id, text.get_coordinates_text)
 
 @dp.message_handler(state=Form.weather_coordinates)
-async def weather_place(message: types.Message,state: FSMContext):
+async def weather_gps(message: types.Message,state: FSMContext):
     async with state.proxy() as data:
         data['name'] = message.text
-    await message.reply(OwmMGR.handle_weather(message.text,2))
+    try:
+        weather = OwmMGR.handle_weather(message.text,2)
+        photo = open(os.path.dirname(os.path.realpath(__file__)) + f"/media/weather_icons/{weather['icon']}.jpg", 'rb')
+        await bot.send_photo(message.chat.id,photo,weather['weather'])
+    except: await bot.send_message(message.chat.id,weather['weather'])
     await send_subscribe(message)
     await state.finish()
 
 #zip
-@dp.message_handler(commands='weather_zip')
-async def get_coordinates(message: types.Message):
+@dp.callback_query_handler(text="zip")
+async def get_zip(call: types.CallbackQuery):
     await Form.weather_zip.set()
-    await bot.send_message(message.chat.id, text.get_zip_text)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await bot.send_message(call.message.chat.id, text.get_zip_text)
 
 @dp.message_handler(state=Form.weather_zip)
-async def weather_place(message: types.Message,state: FSMContext):
+async def weather_zip(message: types.Message,state: FSMContext):
     async with state.proxy() as data:
         data['name'] = message.text
-
-    await message.reply(OwmMGR.handle_weather(message.text,3))
+    try:
+        weather = OwmMGR.handle_weather(message.text,3)
+        photo = open(os.path.dirname(os.path.realpath(__file__)) + f"/media/weather_icons/{weather['icon']}.jpg", 'rb')
+        await bot.send_photo(message.chat.id,photo,weather['weather'])
+    except: await bot.send_message(message.chat.id,weather['weather'])
     await send_subscribe(message)
     await state.finish()
 
@@ -202,7 +253,7 @@ async def get_subscribe(message: types.Message):
         await bot.send_message(message.chat.id,f'{text.subscribed_text_1}{BotDB.get_record(message.from_user.id)[0][0]}{text.subscribed_text_2}',reply_markup = markups.subscribed_buttons)
     else:
         await bot.send_message(message.chat.id,text.subscribing_text,reply_markup = markups.subscribe_button)
-    BotDB.update_lastvisit(message.from_user.id,date.today())
+    await message_handling(message)
 
 @dp.callback_query_handler(text="unsubscribe_weather")
 async def unsubscribe_weather(call: types.CallbackQuery):
@@ -244,7 +295,11 @@ async def send_weather_schedule():
     db = BotDB.get_records()
     for i in db:
         await bot.send_message(i[0],text.schedule_text)
-        await bot.send_message(i[0],OwmMGR.handle_weather(i[1],1),reply_markup = markups.subscribed_buttons)
+        try:
+            weather = OwmMGR.handle_weather(i[1],1)
+            photo = open(os.path.dirname(os.path.realpath(__file__)) + f"/media/weather_icons/{weather['icon']}.jpg", 'rb')
+            await bot.send_photo(i[0],photo,weather['weather'],reply_markup = markups.subscribed_buttons)
+        except: await bot.send_message(i[0],weather['weather'],reply_markup = markups.subscribed_buttons)
     await bot.send_message(config.ADMIN_ID,f"{text.success_schedule} {config.SCHEDULE_TIME}+00")
 
 async def scheduler():
