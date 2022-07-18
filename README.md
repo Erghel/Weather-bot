@@ -1,6 +1,6 @@
 ![logo](https://user-images.githubusercontent.com/69617058/172456633-6d025208-5e0a-4b0d-9842-2a630dc4d6a7.png)
 
-[**Eng**](https://github.com/Erghel/Weather-bot/blob/master/README.md) | [**Ru**](
+[**Eng**](https://github.com/Erghel/Weather-bot/blob/master/README.md) | [**Ru**](https://github.com/Erghel/Weather-bot/blob/master/README-ru.md)
 # 💬 Weatherbot
 Weather Bot for **Telegram** messenger made as an experiment 🔎
 
